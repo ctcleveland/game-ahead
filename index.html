@@ -6,14 +6,44 @@
   <title>Game Ahead</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <h1>Game Ahead</h1>
-  <p>Your lookahead to the games that matter.</p>
-  <p>Current timezone: <span id="tz">Detecting...</span></p>
+<body class="dark">
+  <header>
+    <button id="menu-btn" aria-label="Open settings">☰</button>
+    <h1>Game Ahead</h1>
+    <div></div> <!-- spacer for centering -->
+  </header>
 
-  <script>
-    document.getElementById("tz").textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  </script>
-<script src="app.js"></script>
+  <main>
+    <div id="timezone">Times in: <span id="current-tz">Loading...</span></div>
+    <div id="games-container"></div>
+  </main>
+
+  <!-- Settings overlay -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Settings</h2>
+        <button id="close-settings" aria-label="Close">✕</button>
+      </div>
+
+      <section>
+        <h3>Timezone</h3>
+        <select id="tz-select"></select>
+      </section>
+
+      <section>
+        <h3>Teams to Follow</h3>
+        <input id="team-search" type="text" placeholder="Search teams (e.g. Titans, Lakers)" autocomplete="off"/>
+        <ul id="search-results" class="team-results"></ul>
+
+        <h4>Your Selected Teams</h4>
+        <ul id="selected-teams-list" class="selected-list"></ul>
+      </section>
+
+      <button id="save-settings" class="save-btn">Save & Close</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
