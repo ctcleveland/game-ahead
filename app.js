@@ -1,4 +1,4 @@
-// app.js - Game Ahead PWA with search-based team selection
+// app.js - Game Ahead PWA (full version with timezone, team search, city-mode fallback)
 
 const API_BASE = "https://www.thesportsdb.com/api/v1/json/123/";
 
@@ -10,6 +10,7 @@ const menuBtn = document.getElementById("menu-btn");
 const overlay = document.getElementById("settings-overlay");
 const closeBtn = document.getElementById("close-settings");
 const tzSelect = document.getElementById("tz-select");
+const cityModeCheckbox = document.getElementById("city-mode");
 const teamSearch = document.getElementById("team-search");
 const searchResults = document.getElementById("search-results");
 const selectedList = document.getElementById("selected-teams-list");
@@ -33,17 +34,20 @@ saveBtn.addEventListener("click", () => {
   overlay.classList.add("hidden");
 });
 
-// Timezone population (fixed)
+// ────────────────────────────────────────────────
+// Timezone handling
+// ────────────────────────────────────────────────
 function populateTimezoneSelect() {
   const zones = [
-    {value: "America/New_York", label: "Eastern Time (ET)"},
-    {value: "America/Chicago", label: "Central Time (CT)"},
-    {value: "America/Denver", label: "Mountain Time (MT)"},
-    {value: "America/Los_Angeles", label: "Pacific Time (PT)"},
-    {value: "America/Phoenix", label: "Arizona Time (MST no DST)"},
-    {value: "Pacific/Honolulu", label: "Hawaii Time (HST)"},
-    {value: Intl.DateTimeFormat().resolvedOptions().timeZone, label: "Device Default"}
+    { value: "America/New_York",     label: "Eastern Time (ET)" },
+    { value: "America/Chicago",      label: "Central Time (CT)" },
+    { value: "America/Denver",       label: "Mountain Time (MT)" },
+    { value: "America/Los_Angeles",  label: "Pacific Time (PT)" },
+    { value: "America/Phoenix",      label: "Arizona Time (MST no DST)" },
+    { value: "Pacific/Honolulu",     label: "Hawaii Time (HST)" },
+    { value: Intl.DateTimeFormat().resolvedOptions().timeZone, label: "Device Default" }
   ];
+
   tzSelect.innerHTML = "";
   zones.forEach(z => {
     const opt = document.createElement("option");
@@ -64,21 +68,57 @@ function updateTimezoneDisplay() {
   currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
 }
 
-// Team search (debounced)
+// ────────────────────────────────────────────────
+// Team search with city-mode fallback
+// ────────────────────────────────────────────────
 let searchTimer;
 teamSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
-    const query = teamSearch.value.trim();
-    searchResults.innerHTML = query.length >= 3 ? "<li>Loading...</li>" : "";
+    let query = teamSearch.value.trim();
+    searchResults.innerHTML = "";
     if (query.length < 3) return;
+
+    searchResults.innerHTML = "<li>Loading...</li>";
+
+    const cityMode = cityModeCheckbox.checked;
+    let primaryQuery = query;
+
+    // City-mode nickname fallback (expand this object as needed)
+    const nicknameToCityPrefix = {
+      "76ers":    "Philadelphia ",
+      "sixers":   "Philadelphia ",
+      "eagles":   "Philadelphia ",
+      "flyers":   "Philadelphia ",
+      "phillies": "Philadelphia ",
+      "union":    "Philadelphia ",
+      // Add more as you test other teams
+      // "lakers":   "Los Angeles ",
+      // "celtics":  "Boston ",
+    };
+
+    const lower = query.toLowerCase();
+    if (cityMode && nicknameToCityPrefix[lower]) {
+      primaryQuery = nicknameToCityPrefix[lower] + query;
+    }
+
     try {
-      const res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      const teams = data.teams || [];
+      // Primary search (city or direct)
+      let res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
+      let data = await res.json();
+      let teams = data.teams || [];
+
+      // If city mode and no results → fallback to original query
+      if (cityMode && teams.length === 0) {
+        res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
+        data = await res.json();
+        teams = data.teams || [];
+      }
+
       renderSearchResults(teams);
     } catch (err) {
-      searchResults.innerHTML = "<li>Error loading teams - try again</li>";
+      searchResults.innerHTML = "<li>Error loading teams – try again</li>";
+      console.error(err);
     }
   }, 500);
 });
@@ -86,9 +126,10 @@ teamSearch.addEventListener("input", () => {
 function renderSearchResults(teams) {
   searchResults.innerHTML = "";
   if (teams.length === 0) {
-    searchResults.innerHTML = "<li>No teams found</li>";
+    searchResults.innerHTML = "<li>No teams found – try city or nickname</li>";
     return;
   }
+
   teams.forEach(team => {
     if (!team.idTeam) return;
     const li = document.createElement("li");
@@ -116,6 +157,7 @@ function renderSelectedTeams() {
     selectedList.innerHTML = "<li>No teams selected yet</li>";
     return;
   }
+
   selectedTeams.forEach((team, idx) => {
     const li = document.createElement("li");
     li.innerHTML = `${team.name} <small>(${team.league || team.sport})</small>
@@ -129,9 +171,14 @@ function renderSelectedTeams() {
   });
 }
 
-// Placeholder games
+// ────────────────────────────────────────────────
+// Placeholder games display
+// ────────────────────────────────────────────────
 async function loadGames() {
-  gamesContainer.innerHTML = selectedTeams.length === 0 
-    ? "<p>Add teams in settings to see games!</p>"
-    : "<p>Teams selected! Games coming next update.</p>";
+  if (selectedTeams.length === 0) {
+    gamesContainer.innerHTML = "<p>Add teams in settings to see games!</p>";
+    return;
+  }
+
+  gamesContainer.innerHTML = "<p>Teams selected! (Upcoming games will appear here soon)</p>";
 }
