@@ -84,6 +84,7 @@ function updateTimezoneDisplay() {
 }
 
 // League selection (dynamic team list from api-sports.io)
+// League selection - fetch teams for the selected sport
 leagueSelect.addEventListener("change", async (e) => {
   const sport = e.target.value;
   leagueTeamsList.innerHTML = "";
@@ -93,37 +94,63 @@ leagueSelect.addEventListener("change", async (e) => {
   leagueTeamsList.innerHTML = "<li>Loading teams...</li>";
 
   const baseUrl = BASE_URLS[sport];
-  if (!baseUrl) return;
+  if (!baseUrl) {
+    leagueTeamsList.innerHTML = "<li>Invalid league selected</li>";
+    return;
+  }
 
   try {
     const headers = { "x-apisports-key": API_KEY };
-    const res = await fetch(`${baseUrl}teams?league=${LEAGUE_IDS[sport]}&season=2026`, { headers });
-    const data = await res.json();
-    const teams = data.response || [];
+    // For NBA: /teams (no league param needed)
+    // For other sports, add ?league=ID if required - test individually
+    let url = `${baseUrl}teams`;
+    if (sport !== "NBA") {
+      // Example for other sports - adjust ID per sport
+      url += `?league=${LEAGUE_IDS[sport]}`;
+    }
 
-    renderLeagueTeams(teams.sort((a,b) => a.name.localeCompare(b.name)));
+    const res = await fetch(url, { headers });
+    const data = await res.json();
+    console.log(`Teams fetch result for ${sport}:`, data);
+
+    let teams = [];
+    if (data.response) {
+      teams = data.response;
+    } else if (data.results) {
+      teams = data.response || [];  // some APIs use different structure
+    }
+
+    if (teams.length === 0) {
+      leagueTeamsList.innerHTML = "<li>No teams found for this league (check console)</li>";
+      return;
+    }
+
+    // Sort alphabetically by name
+    teams.sort((a, b) => (a.name || a.team?.name || "").localeCompare(b.name || b.team?.name || ""));
+
+    renderLeagueTeams(teams);
   } catch (err) {
-    leagueTeamsList.innerHTML = "<li>Error loading teams – try again</li>";
-    console.error(err);
+    leagueTeamsList.innerHTML = "<li>Error loading teams – check console or API key</li>";
+    console.error("Team fetch error:", err);
   }
 });
 
 function renderLeagueTeams(teams) {
   leagueTeamsList.innerHTML = "";
-  if (teams.length === 0) {
-    leagueTeamsList.innerHTML = "<li>No teams found for this league</li>";
-    return;
-  }
-
   teams.forEach(team => {
+    const teamName = team.name || team.team?.name || "Unknown";
+    const teamId = team.id || team.team?.id;
+
+    if (!teamId || !teamName) return;
+
     const li = document.createElement("li");
-    li.textContent = team.name;
+    li.textContent = teamName;
     li.addEventListener("click", () => {
-      if (!selectedTeams.some(t => t.name === team.name)) {
+      if (!selectedTeams.some(t => t.apiId === teamId)) {
         selectedTeams.push({
-          name: team.name,
+          name: teamName,
           league: leagueSelect.value,
-          apiId: team.id  // Store the API-Sports ID for games fetch
+          apiId: teamId
         });
         renderSelectedTeams();
       }
