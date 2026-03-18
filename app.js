@@ -1,4 +1,4 @@
-// app.js - Game Ahead PWA (full version with timezone, team search, city-mode fallback)
+// app.js - Game Ahead PWA (with improved city-mode fallback for 76ers and similar)
 
 const API_BASE = "https://www.thesportsdb.com/api/v1/json/123/";
 
@@ -34,9 +34,7 @@ saveBtn.addEventListener("click", () => {
   overlay.classList.add("hidden");
 });
 
-// ────────────────────────────────────────────────
 // Timezone handling
-// ────────────────────────────────────────────────
 function populateTimezoneSelect() {
   const zones = [
     { value: "America/New_York",     label: "Eastern Time (ET)" },
@@ -68,9 +66,7 @@ function updateTimezoneDisplay() {
   currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
 }
 
-// ────────────────────────────────────────────────
-// Team search with city-mode fallback
-// ────────────────────────────────────────────────
+// Team search with improved city-mode fallback
 let searchTimer;
 teamSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -84,31 +80,37 @@ teamSearch.addEventListener("input", () => {
     const cityMode = cityModeCheckbox.checked;
     let primaryQuery = query;
 
-    // City-mode nickname fallback (expand this object as needed)
-    const nicknameToCityPrefix = {
-      "76ers":    "Philadelphia ",
-      "sixers":   "Philadelphia ",
-      "eagles":   "Philadelphia ",
-      "flyers":   "Philadelphia ",
-      "phillies": "Philadelphia ",
-      "union":    "Philadelphia ",
+    // Expanded fallback map for common nicknames that need city prefix
+    const nicknameFallback = {
+      "76ers":    "Philadelphia 76ers",
+      "sixers":   "Philadelphia 76ers",
+      "eagles":   "Philadelphia Eagles",
+      "flyers":   "Philadelphia Flyers",
+      "phillies": "Philadelphia Phillies",
+      "union":    "Philadelphia Union",
+      "lakers":   "Los Angeles Lakers",
+      "celtics":  "Boston Celtics",
+      "warriors": "Golden State Warriors",
+      "knicks":   "New York Knicks",
+      "nets":     "Brooklyn Nets",
+      "heat":     "Miami Heat",
       // Add more as you test other teams
-      // "lakers":   "Los Angeles ",
-      // "celtics":  "Boston ",
     };
 
-    const lower = query.toLowerCase();
-    if (cityMode && nicknameToCityPrefix[lower]) {
-      primaryQuery = nicknameToCityPrefix[lower] + query;
+    const lowerQuery = query.toLowerCase();
+    if (cityMode && nicknameFallback[lowerQuery]) {
+      primaryQuery = nicknameFallback[lowerQuery];
+    } else if (cityMode && !lowerQuery.includes("philadelphia") && lowerQuery.includes("76") || lowerQuery.includes("six")) {
+      primaryQuery = "Philadelphia 76ers";  // extra safety for partial "76ers" variants
     }
 
     try {
-      // Primary search (city or direct)
+      // Primary search
       let res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
       let data = await res.json();
       let teams = data.teams || [];
 
-      // If city mode and no results → fallback to original query
+      // Fallback to original query if city mode and no results
       if (cityMode && teams.length === 0) {
         res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
         data = await res.json();
@@ -126,7 +128,7 @@ teamSearch.addEventListener("input", () => {
 function renderSearchResults(teams) {
   searchResults.innerHTML = "";
   if (teams.length === 0) {
-    searchResults.innerHTML = "<li>No teams found – try city or nickname</li>";
+    searchResults.innerHTML = "<li>No teams found – try full name or nickname (see tip)</li>";
     return;
   }
 
@@ -171,9 +173,7 @@ function renderSelectedTeams() {
   });
 }
 
-// ────────────────────────────────────────────────
-// Placeholder games display
-// ────────────────────────────────────────────────
+// Placeholder games
 async function loadGames() {
   if (selectedTeams.length === 0) {
     gamesContainer.innerHTML = "<p>Add teams in settings to see games!</p>";
