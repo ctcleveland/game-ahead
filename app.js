@@ -84,7 +84,6 @@ function updateTimezoneDisplay() {
 }
 
 // League selection (dynamic team list from api-sports.io)
-// League selection - fetch teams for the selected sport
 leagueSelect.addEventListener("change", async (e) => {
   const sport = e.target.value;
   leagueTeamsList.innerHTML = "";
@@ -101,27 +100,24 @@ leagueSelect.addEventListener("change", async (e) => {
 
   try {
     const headers = { "x-apisports-key": API_KEY };
-    // For NBA: /teams (no league param needed)
-    // For other sports, add ?league=ID if required - test individually
     let url = `${baseUrl}teams`;
-    if (sport !== "NBA") {
-      // Example for other sports - adjust ID per sport
-      url += `?league=${LEAGUE_IDS[sport]}`;
+
+    // Special case for MLS (football API needs league filter)
+    if (sport === "MLS") {
+      url += "?league=253";  // MLS league ID in football API
     }
+    // NBA, NFL, MLB, NHL: no league param needed - /teams returns all in league
 
     const res = await fetch(url, { headers });
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
     const data = await res.json();
     console.log(`Teams fetch result for ${sport}:`, data);
 
-    let teams = [];
-    if (data.response) {
-      teams = data.response;
-    } else if (data.results) {
-      teams = data.response || [];  // some APIs use different structure
-    }
-
+    let teams = data.response || [];
     if (teams.length === 0) {
-      leagueTeamsList.innerHTML = "<li>No teams found for this league (check console)</li>";
+      leagueTeamsList.innerHTML = "<li>No teams found for this league (check console for details)</li>";
       return;
     }
 
