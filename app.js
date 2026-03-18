@@ -1,24 +1,17 @@
-// app.js - Game Ahead PWA with league cascading selector
+// app.js - Game Ahead PWA with search-based team selection
 
 const API_BASE = "https://www.thesportsdb.com/api/v1/json/123/";
+
 let selectedTeams = JSON.parse(localStorage.getItem("selectedTeams")) || [];
 let userTimezone = localStorage.getItem("timezone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-const leagues = [
-  {id: "4391", name: "NFL"},
-  {id: "4387", name: "NBA"},
-  {id: "4424", name: "MLB"},
-  {id: "4380", name: "NHL"},
-  {id: "4346", name: "MLS"}
-];
 
 // DOM elements
 const menuBtn = document.getElementById("menu-btn");
 const overlay = document.getElementById("settings-overlay");
 const closeBtn = document.getElementById("close-settings");
 const tzSelect = document.getElementById("tz-select");
-const leagueSelect = document.getElementById("league-select");
-const leagueTeamsList = document.getElementById("league-teams-list");
+const teamSearch = document.getElementById("team-search");
+const searchResults = document.getElementById("search-results");
 const selectedList = document.getElementById("selected-teams-list");
 const saveBtn = document.getElementById("save-settings");
 const gamesContainer = document.getElementById("games-container");
@@ -27,7 +20,6 @@ const currentTzSpan = document.getElementById("current-tz");
 // Initial setup
 updateTimezoneDisplay();
 populateTimezoneSelect();
-populateLeagueSelect();
 renderSelectedTeams();
 loadGames();
 
@@ -41,44 +33,66 @@ saveBtn.addEventListener("click", () => {
   overlay.classList.add("hidden");
 });
 
-// Timezone
-function populateTimezoneSelect() { /* same as before */ }
-tzSelect.addEventListener("change", (e) => { userTimezone = e.target.value; updateTimezoneDisplay(); });
-function updateTimezoneDisplay() { /* same as before */ }
-
-// Leagues dropdown
-function populateLeagueSelect() {
-  leagueSelect.innerHTML = '<option value="">Select a league</option>';
-  leagues.forEach(l => {
+// Timezone population (fixed)
+function populateTimezoneSelect() {
+  const zones = [
+    {value: "America/New_York", label: "Eastern Time (ET)"},
+    {value: "America/Chicago", label: "Central Time (CT)"},
+    {value: "America/Denver", label: "Mountain Time (MT)"},
+    {value: "America/Los_Angeles", label: "Pacific Time (PT)"},
+    {value: "America/Phoenix", label: "Arizona Time (MST no DST)"},
+    {value: "Pacific/Honolulu", label: "Hawaii Time (HST)"},
+    {value: Intl.DateTimeFormat().resolvedOptions().timeZone, label: "Device Default"}
+  ];
+  tzSelect.innerHTML = "";
+  zones.forEach(z => {
     const opt = document.createElement("option");
-    opt.value = l.id;
-    opt.textContent = l.name;
-    leagueSelect.appendChild(opt);
+    opt.value = z.value;
+    opt.textContent = z.label;
+    if (z.value === userTimezone) opt.selected = true;
+    tzSelect.appendChild(opt);
   });
 }
 
-leagueSelect.addEventListener("change", async (e) => {
-  const leagueId = e.target.value;
-  if (!leagueId) {
-    leagueTeamsList.innerHTML = "";
-    return;
-  }
-  try {
-    const res = await fetch(`${API_BASE}lookup_all_teams.php?id=${leagueId}`);
-    const data = await res.json();
-    const teams = data.teams || [];
-    renderLeagueTeams(teams.sort((a,b) => a.strTeam.localeCompare(b.strTeam)));
-  } catch (err) {
-    leagueTeamsList.innerHTML = "<li>Error loading teams</li>";
-  }
+tzSelect.addEventListener("change", (e) => {
+  userTimezone = e.target.value;
+  updateTimezoneDisplay();
 });
 
-function renderLeagueTeams(teams) {
-  leagueTeamsList.innerHTML = "";
+function updateTimezoneDisplay() {
+  const selectedOption = tzSelect.options[tzSelect.selectedIndex];
+  currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
+}
+
+// Team search (debounced)
+let searchTimer;
+teamSearch.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const query = teamSearch.value.trim();
+    searchResults.innerHTML = query.length >= 3 ? "<li>Loading...</li>" : "";
+    if (query.length < 3) return;
+    try {
+      const res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      const teams = data.teams || [];
+      renderSearchResults(teams);
+    } catch (err) {
+      searchResults.innerHTML = "<li>Error loading teams - try again</li>";
+    }
+  }, 500);
+});
+
+function renderSearchResults(teams) {
+  searchResults.innerHTML = "";
+  if (teams.length === 0) {
+    searchResults.innerHTML = "<li>No teams found</li>";
+    return;
+  }
   teams.forEach(team => {
     if (!team.idTeam) return;
     const li = document.createElement("li");
-    li.textContent = team.strTeam;
+    li.textContent = `${team.strTeam} (${team.strLeague || team.strSport || 'Unknown'})`;
     li.addEventListener("click", () => {
       if (!selectedTeams.some(t => t.id === team.idTeam)) {
         selectedTeams.push({
@@ -89,12 +103,35 @@ function renderLeagueTeams(teams) {
         });
         renderSelectedTeams();
       }
+      teamSearch.value = "";
+      searchResults.innerHTML = "";
     });
-    leagueTeamsList.appendChild(li);
+    searchResults.appendChild(li);
   });
 }
 
-function renderSelectedTeams() { /* same as before */ }
+function renderSelectedTeams() {
+  selectedList.innerHTML = "";
+  if (selectedTeams.length === 0) {
+    selectedList.innerHTML = "<li>No teams selected yet</li>";
+    return;
+  }
+  selectedTeams.forEach((team, idx) => {
+    const li = document.createElement("li");
+    li.innerHTML = `${team.name} <small>(${team.league || team.sport})</small>
+      <button data-idx="${idx}">×</button>`;
+    li.querySelector("button").addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectedTeams.splice(idx, 1);
+      renderSelectedTeams();
+    });
+    selectedList.appendChild(li);
+  });
+}
 
-// Placeholder loadGames
-async function loadGames() { /* same as before */ }
+// Placeholder games
+async function loadGames() {
+  gamesContainer.innerHTML = selectedTeams.length === 0 
+    ? "<p>Add teams in settings to see games!</p>"
+    : "<p>Teams selected! Games coming next update.</p>";
+}
