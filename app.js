@@ -1,4 +1,4 @@
-// app.js - Game Ahead PWA (dynamic team ID lookup with API-Sports.io)
+// app.js - Game Ahead PWA using api-sports.io for all API calls
 
 const API_KEY = "7ed34d0b99ba3829f677cb5483a76c15";  // Replace with your real API-Sports key
 
@@ -8,20 +8,28 @@ const BASE_URLS = {
   "NFL": "https://v1.american-football.api-sports.io/",
   "MLB": "https://v1.baseball.api-sports.io/",
   "NHL": "https://v1.hockey.api-sports.io/",
-  "MLS": "https://v3.football.api-sports.io/"  // MLS is under football API
+  "MLS": "https://v3.football.api-sports.io/"  // MLS under football
+};
+
+// League IDs for major US leagues (fixed for dropdown)
+const LEAGUE_IDS = {
+  "NBA": 1,  // Example NBA league ID - verify if needed
+  "NFL": 1,  // NFL regular season ID
+  "MLB": 1,  // MLB
+  "NHL": 1,  // NHL
+  "MLS": 253  // MLS ID in football API
 };
 
 let selectedTeams = JSON.parse(localStorage.getItem("selectedTeams")) || [];
 let userTimezone = localStorage.getItem("timezone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-// DOM elements (same)
+// DOM elements
 const menuBtn = document.getElementById("menu-btn");
 const overlay = document.getElementById("settings-overlay");
 const closeBtn = document.getElementById("close-settings");
 const tzSelect = document.getElementById("tz-select");
-const cityModeCheckbox = document.getElementById("city-mode");
-const teamSearch = document.getElementById("team-search");
-const searchResults = document.getElementById("search-results");
+const leagueSelect = document.getElementById("league-select");
+const leagueTeamsList = document.getElementById("league-teams-list");
 const selectedList = document.getElementById("selected-teams-list");
 const saveBtn = document.getElementById("save-settings");
 const gamesContainer = document.getElementById("games-container");
@@ -75,79 +83,52 @@ function updateTimezoneDisplay() {
   currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
 }
 
-// Team search (unchanged)
-let searchTimer;
-teamSearch.addEventListener("input", () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(async () => {
-    let query = teamSearch.value.trim();
-    searchResults.innerHTML = "";
-    if (query.length < 3) return;
+// League selection (dynamic team list from api-sports.io)
+leagueSelect.addEventListener("change", async (e) => {
+  const sport = e.target.value;
+  leagueTeamsList.innerHTML = "";
 
-    searchResults.innerHTML = "<li>Loading...</li>";
+  if (!sport) return;
 
-    const cityMode = cityModeCheckbox.checked;
-    let primaryQuery = query;
+  leagueTeamsList.innerHTML = "<li>Loading teams...</li>";
 
-    const nicknameFallback = {
-      "76ers":    "Philadelphia 76ers",
-      "sixers":   "Philadelphia 76ers",
-      "eagles":   "Philadelphia Eagles",
-      "flyers":   "Philadelphia Flyers",
-      "phillies": "Philadelphia Phillies",
-      "union":    "Philadelphia Union",
-      "lakers":   "Los Angeles Lakers"
-    };
+  const baseUrl = BASE_URLS[sport];
+  if (!baseUrl) return;
 
-    const lower = query.toLowerCase();
-    if (cityMode && nicknameFallback[lower]) {
-      primaryQuery = nicknameFallback[lower];
-    }
+  try {
+    const headers = { "x-apisports-key": API_KEY };
+    const res = await fetch(`${baseUrl}teams?league=${LEAGUE_IDS[sport]}&season=2026`, { headers });
+    const data = await res.json();
+    const teams = data.response || [];
 
-    try {
-      let res = await fetch(`${THESPORTS_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
-      let data = await res.json();
-      let teams = data.teams || [];
-
-      if (cityMode && teams.length === 0) {
-        res = await fetch(`${THESPORTS_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
-        data = await res.json();
-        teams = data.teams || [];
-      }
-
-      renderSearchResults(teams);
-    } catch (err) {
-      searchResults.innerHTML = "<li>Error loading teams – try again</li>";
-      console.error(err);
-    }
-  }, 500);
+    renderLeagueTeams(teams.sort((a,b) => a.name.localeCompare(b.name)));
+  } catch (err) {
+    leagueTeamsList.innerHTML = "<li>Error loading teams – try again</li>";
+    console.error(err);
+  }
 });
 
-function renderSearchResults(teams) {
-  searchResults.innerHTML = "";
+function renderLeagueTeams(teams) {
+  leagueTeamsList.innerHTML = "";
   if (teams.length === 0) {
-    searchResults.innerHTML = "<li>No teams found – try city or full name</li>";
+    leagueTeamsList.innerHTML = "<li>No teams found for this league</li>";
     return;
   }
 
   teams.forEach(team => {
-    if (!team.idTeam) return;
     const li = document.createElement("li");
-    li.textContent = `${team.strTeam} (${team.strLeague || team.strSport || 'Unknown'})`;
+    li.textContent = team.name;
     li.addEventListener("click", () => {
-      if (!selectedTeams.some(t => t.id === team.idTeam)) {
+      if (!selectedTeams.some(t => t.name === team.name)) {
         selectedTeams.push({
-          id: team.idTeam,
-          name: team.strTeam,
-          sport: team.strSport || "",
-          league: team.strLeague || ""
+          name: team.name,
+          league: leagueSelect.value,
+          apiId: team.id  // Store the API-Sports ID for games fetch
         });
         renderSelectedTeams();
       }
-      teamSearch.value = "";
-      searchResults.innerHTML = "";
     });
-    searchResults.appendChild(li);
+    leagueTeamsList.appendChild(li);
   });
 }
 
@@ -160,7 +141,7 @@ function renderSelectedTeams() {
 
   selectedTeams.forEach((team, idx) => {
     const li = document.createElement("li");
-    li.innerHTML = `${team.name} <small>(${team.league || team.sport})</small>
+    li.innerHTML = `${team.name} <small>(${team.league})</small>
       <button data-idx="${idx}">×</button>`;
     li.querySelector("button").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -171,7 +152,7 @@ function renderSelectedTeams() {
   });
 }
 
-// Load games using API-Sports.io with dynamic team ID lookup
+// Load games using API-Sports.io
 async function loadGames() {
   if (selectedTeams.length === 0) {
     gamesContainer.innerHTML = "<p>Add teams in settings to see games!</p>";
@@ -186,54 +167,15 @@ async function loadGames() {
   let allGames = [];
 
   for (const team of selectedTeams) {
-    const sport = team.league?.toLowerCase() || team.sport?.toLowerCase() || "";
-    let baseUrl = "";
-    let endpoint = "games";
+    const baseUrl = BASE_URLS[team.league];
+    if (!baseUrl) continue;
 
-    // Map sport to API-Sports base URL
-    if (sport.includes("basketball") || sport === "nba") {
-      baseUrl = "https://v2.nba.api-sports.io/";
-    } else if (sport.includes("american football") || sport === "nfl") {
-      baseUrl = "https://v1.american-football.api-sports.io/";
-    } else if (sport.includes("baseball") || sport === "mlb") {
-      baseUrl = "https://v1.baseball.api-sports.io/";
-    } else if (sport.includes("hockey") || sport === "nhl") {
-      baseUrl = "https://v1.hockey.api-sports.io/";
-    } else if (sport.includes("soccer") || sport === "mls") {
-      baseUrl = "https://v3.football.api-sports.io/";
-    } else {
-      gamesContainer.innerHTML += `<p>Unsupported sport for ${team.name} (${sport})</p>`;
-      continue;
-    }
+    console.log(`Fetching games for ${team.name} (${team.league}, API ID: ${team.apiId})`);
 
-    console.log(`Looking up API-Sports ID for ${team.name} (${sport})`);
-
-    // Step 1: Dynamic lookup of team ID by name
-    let apiTeamId = null;
-    try {
-      const headers = { "x-apisports-key": API_KEY };
-      const res = await fetch(`${baseUrl}teams?search=${encodeURIComponent(team.name)}`, { headers });
-      const data = await res.json();
-      console.log(`Team search result for ${team.name}:`, data);
-
-      if (data.response && data.response.length > 0) {
-        // Take the first match (usually correct if name is unique)
-        apiTeamId = data.response[0].id;
-        console.log(`Found API-Sports ID ${apiTeamId} for ${team.name}`);
-      } else {
-        console.warn(`No team ID found for ${team.name} in ${sport}`);
-      }
-    } catch (err) {
-      console.error(`Team ID lookup failed for ${team.name}:`, err);
-    }
-
-    if (!apiTeamId) continue;
-
-    // Step 2: Fetch games using the dynamic ID
     try {
       const headers = { "x-apisports-key": API_KEY };
       const startDate = now.toISOString().split('T')[0];
-      const res = await fetch(`${baseUrl}${endpoint}?team=${apiTeamId}&date=${startDate}`, { headers });
+      const res = await fetch(`${baseUrl}games?team=${team.apiId}&date=${startDate}`, { headers });
       const data = await res.json();
       console.log(`API-Sports raw games for ${team.name}:`, data.response?.length || 0, data.response);
 
@@ -258,20 +200,20 @@ async function loadGames() {
               awayTeam: game.teams.visitors.name || game.teams.away,
               localTime,
               broadcasts: "Check local listings / League Pass / ESPN / Fox / CBS",
-              league: team.league || sport.toUpperCase()
+              league: team.league
             });
           }
         }
       }
     } catch (err) {
-      console.error(`Games fetch failed for ${team.name}:`, err);
+      console.error(`API-Sports fetch failed for ${team.name}:`, err);
     }
   }
 
   allGames.sort((a, b) => new Date(a.localTime) - new Date(b.localTime));
 
   if (allGames.length === 0) {
-    gamesContainer.innerHTML = "<p>No upcoming games found in the next 30 days (check console for API details).</p>";
+    gamesContainer.innerHTML = "<p>No upcoming games found in the next 30 days (check console for details).</p>";
     return;
   }
 
