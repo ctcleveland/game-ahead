@@ -1,18 +1,20 @@
-// app.js - Game Ahead PWA (balldontlie for Philadelphia NBA teams only)
+// app.js - Game Ahead PWA (dynamic team ID lookup with API-Sports.io)
 
-const API_BASE = "https://www.thesportsdb.com/api/v1/json/123/";
-const BDL_BASE = "https://www.balldontlie.io/api/v1";
+const API_KEY = "YOUR_API_KEY_HERE";  // Replace with your real API-Sports key
 
-// Hard-coded balldontlie NBA IDs — ONLY Philadelphia teams
-const nbaPhillyTeamIds = {
-  "Philadelphia 76ers": 23
-  // No other Philly NBA team exists, so only this one
+// Base URLs per sport
+const BASE_URLS = {
+  "NBA": "https://v2.nba.api-sports.io/",
+  "NFL": "https://v1.american-football.api-sports.io/",
+  "MLB": "https://v1.baseball.api-sports.io/",
+  "NHL": "https://v1.hockey.api-sports.io/",
+  "MLS": "https://v3.football.api-sports.io/"  // MLS is under football API
 };
 
 let selectedTeams = JSON.parse(localStorage.getItem("selectedTeams")) || [];
 let userTimezone = localStorage.getItem("timezone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-// DOM elements
+// DOM elements (same)
 const menuBtn = document.getElementById("menu-btn");
 const overlay = document.getElementById("settings-overlay");
 const closeBtn = document.getElementById("close-settings");
@@ -73,7 +75,7 @@ function updateTimezoneDisplay() {
   currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
 }
 
-// Team search with city-mode fallback (unchanged)
+// Team search (unchanged)
 let searchTimer;
 teamSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -87,14 +89,14 @@ teamSearch.addEventListener("input", () => {
     const cityMode = cityModeCheckbox.checked;
     let primaryQuery = query;
 
-    // Nickname → full name fallback (Philadelphia focus)
     const nicknameFallback = {
       "76ers":    "Philadelphia 76ers",
       "sixers":   "Philadelphia 76ers",
       "eagles":   "Philadelphia Eagles",
       "flyers":   "Philadelphia Flyers",
       "phillies": "Philadelphia Phillies",
-      "union":    "Philadelphia Union"
+      "union":    "Philadelphia Union",
+      "lakers":   "Los Angeles Lakers"
     };
 
     const lower = query.toLowerCase();
@@ -103,12 +105,12 @@ teamSearch.addEventListener("input", () => {
     }
 
     try {
-      let res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
+      let res = await fetch(`${THESPORTS_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
       let data = await res.json();
       let teams = data.teams || [];
 
       if (cityMode && teams.length === 0) {
-        res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
+        res = await fetch(`${THESPORTS_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
         data = await res.json();
         teams = data.teams || [];
       }
@@ -169,7 +171,7 @@ function renderSelectedTeams() {
   });
 }
 
-// Load games: balldontlie for Philly NBA, TheSportsDB fallback for others
+// Load games using API-Sports.io with dynamic team ID lookup
 async function loadGames() {
   if (selectedTeams.length === 0) {
     gamesContainer.innerHTML = "<p>Add teams in settings to see games!</p>";
@@ -184,19 +186,60 @@ async function loadGames() {
   let allGames = [];
 
   for (const team of selectedTeams) {
-    console.log(`Fetching games for ${team.name} (league: ${team.league}, ID: ${team.id})`);
+    const sport = team.league?.toLowerCase() || team.sport?.toLowerCase() || "";
+    let baseUrl = "";
+    let endpoint = "games";
 
-    if (team.league === "NBA" && nbaPhillyTeamIds[team.name]) {
-      // balldontlie for Philadelphia 76ers only
-      const bdlId = nbaPhillyTeamIds[team.name];
-      try {
-        const startDate = now.toISOString().split('T')[0];
-        const res = await fetch(`${BDL_BASE}/games?team_ids[]=${bdlId}&start_date=${startDate}`);
-        const data = await res.json();
-        console.log(`balldontlie raw games for ${team.name}:`, data.data.length, data.data);
+    // Map sport to API-Sports base URL
+    if (sport.includes("basketball") || sport === "nba") {
+      baseUrl = "https://v2.nba.api-sports.io/";
+    } else if (sport.includes("american football") || sport === "nfl") {
+      baseUrl = "https://v1.american-football.api-sports.io/";
+    } else if (sport.includes("baseball") || sport === "mlb") {
+      baseUrl = "https://v1.baseball.api-sports.io/";
+    } else if (sport.includes("hockey") || sport === "nhl") {
+      baseUrl = "https://v1.hockey.api-sports.io/";
+    } else if (sport.includes("soccer") || sport === "mls") {
+      baseUrl = "https://v3.football.api-sports.io/";
+    } else {
+      gamesContainer.innerHTML += `<p>Unsupported sport for ${team.name} (${sport})</p>`;
+      continue;
+    }
 
-        for (const game of data.data) {
-          const gameTime = new Date(game.datetime);
+    console.log(`Looking up API-Sports ID for ${team.name} (${sport})`);
+
+    // Step 1: Dynamic lookup of team ID by name
+    let apiTeamId = null;
+    try {
+      const headers = { "x-apisports-key": API_KEY };
+      const res = await fetch(`${baseUrl}teams?search=${encodeURIComponent(team.name)}`, { headers });
+      const data = await res.json();
+      console.log(`Team search result for ${team.name}:`, data);
+
+      if (data.response && data.response.length > 0) {
+        // Take the first match (usually correct if name is unique)
+        apiTeamId = data.response[0].id;
+        console.log(`Found API-Sports ID ${apiTeamId} for ${team.name}`);
+      } else {
+        console.warn(`No team ID found for ${team.name} in ${sport}`);
+      }
+    } catch (err) {
+      console.error(`Team ID lookup failed for ${team.name}:`, err);
+    }
+
+    if (!apiTeamId) continue;
+
+    // Step 2: Fetch games using the dynamic ID
+    try {
+      const headers = { "x-apisports-key": API_KEY };
+      const startDate = now.toISOString().split('T')[0];
+      const res = await fetch(`${baseUrl}${endpoint}?team=${apiTeamId}&date=${startDate}`, { headers });
+      const data = await res.json();
+      console.log(`API-Sports raw games for ${team.name}:`, data.response?.length || 0, data.response);
+
+      if (data.response) {
+        for (const game of data.response) {
+          const gameTime = new Date(game.date.start || game.date);
           if (isNaN(gameTime.getTime())) continue;
 
           if (gameTime > now && gameTime < in30days) {
@@ -211,69 +254,24 @@ async function loadGames() {
             });
 
             allGames.push({
-              homeTeam: game.home_team.full_name,
-              awayTeam: game.visitor_team.full_name,
+              homeTeam: game.teams.home.name || game.teams.home,
+              awayTeam: game.teams.visitors.name || game.teams.away,
               localTime,
-              broadcasts: "Check NBA League Pass / ESPN / local listings",
-              league: "NBA"
+              broadcasts: "Check local listings / League Pass / ESPN / Fox / CBS",
+              league: team.league || sport.toUpperCase()
             });
           }
         }
-      } catch (err) {
-        console.error(`balldontlie fetch failed for ${team.name}:`, err);
       }
-    } else {
-      // TheSportsDB fallback for all other teams (including Philly non-NBA)
-      try {
-        const res = await fetch(`${API_BASE}eventsnext.php?id=${team.id}`);
-        const data = await res.json();
-        const events = data.events || [];
-        console.log(`TheSportsDB raw events for ${team.name}:`, events.length);
-
-        for (const event of events) {
-          const eventUTC = new Date(`${event.dateEvent}T${event.strTime || '00:00:00'}Z`);
-          if (isNaN(eventUTC.getTime())) continue;
-
-          if (eventUTC > now && eventUTC < in30days) {
-            const localTime = eventUTC.toLocaleString("en-US", {
-              timeZone: userTimezone,
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-              hour12: true
-            });
-
-            let broadcasts = "TBD / Check listings";
-            try {
-              const tvRes = await fetch(`${API_BASE}lookuptv.php?id=${event.idEvent}`);
-              const tvData = await tvRes.json();
-              const tvList = tvData.tv || [];
-              if (tvList.length > 0) {
-                broadcasts = tvList.map(t => t.strChannel).filter(Boolean).join(", ");
-              }
-            } catch {}
-
-            allGames.push({
-              homeTeam: event.strHomeTeam,
-              awayTeam: event.strAwayTeam,
-              localTime,
-              broadcasts,
-              league: team.league || event.strLeague
-            });
-          }
-        }
-      } catch (err) {
-        console.error(`TheSportsDB fetch failed for ${team.name}:`, err);
-      }
+    } catch (err) {
+      console.error(`Games fetch failed for ${team.name}:`, err);
     }
   }
 
   allGames.sort((a, b) => new Date(a.localTime) - new Date(b.localTime));
 
   if (allGames.length === 0) {
-    gamesContainer.innerHTML = "<p>No upcoming games found in the next 30 days (some sports have limited future data in free APIs).</p>";
+    gamesContainer.innerHTML = "<p>No upcoming games found in the next 30 days (check console for API details).</p>";
     return;
   }
 
