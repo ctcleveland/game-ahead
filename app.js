@@ -1,4 +1,4 @@
-// app.js - Game Ahead PWA (with improved city-mode fallback for 76ers and similar)
+// app.js - Game Ahead PWA (with real upcoming games fetch)
 
 const API_BASE = "https://www.thesportsdb.com/api/v1/json/123/";
 
@@ -30,7 +30,7 @@ saveBtn.addEventListener("click", () => {
   localStorage.setItem("timezone", userTimezone);
   localStorage.setItem("selectedTeams", JSON.stringify(selectedTeams));
   updateTimezoneDisplay();
-  loadGames();
+  loadGames();  // refresh games after save
   overlay.classList.add("hidden");
 });
 
@@ -66,7 +66,7 @@ function updateTimezoneDisplay() {
   currentTzSpan.textContent = selectedOption ? selectedOption.textContent : userTimezone;
 }
 
-// Team search with improved city-mode fallback
+// Team search with city-mode fallback
 let searchTimer;
 teamSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -80,7 +80,7 @@ teamSearch.addEventListener("input", () => {
     const cityMode = cityModeCheckbox.checked;
     let primaryQuery = query;
 
-    // Expanded fallback map for common nicknames that need city prefix
+    // Nickname → full name fallback (expand as needed)
     const nicknameFallback = {
       "76ers":    "Philadelphia 76ers",
       "sixers":   "Philadelphia 76ers",
@@ -94,23 +94,22 @@ teamSearch.addEventListener("input", () => {
       "knicks":   "New York Knicks",
       "nets":     "Brooklyn Nets",
       "heat":     "Miami Heat",
-      // Add more as you test other teams
+      "suns":     "Phoenix Suns",
+      "nuggets":  "Denver Nuggets",
+      // Add more teams here over time
     };
 
-    const lowerQuery = query.toLowerCase();
-    if (cityMode && nicknameFallback[lowerQuery]) {
-      primaryQuery = nicknameFallback[lowerQuery];
-    } else if (cityMode && !lowerQuery.includes("philadelphia") && lowerQuery.includes("76") || lowerQuery.includes("six")) {
-      primaryQuery = "Philadelphia 76ers";  // extra safety for partial "76ers" variants
+    const lower = query.toLowerCase();
+    if (cityMode && nicknameFallback[lower]) {
+      primaryQuery = nicknameFallback[lower];
     }
 
     try {
-      // Primary search
       let res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(primaryQuery)}`);
       let data = await res.json();
       let teams = data.teams || [];
 
-      // Fallback to original query if city mode and no results
+      // Fallback to original query if nothing found in city mode
       if (cityMode && teams.length === 0) {
         res = await fetch(`${API_BASE}searchteams.php?t=${encodeURIComponent(query)}`);
         data = await res.json();
@@ -128,7 +127,7 @@ teamSearch.addEventListener("input", () => {
 function renderSearchResults(teams) {
   searchResults.innerHTML = "";
   if (teams.length === 0) {
-    searchResults.innerHTML = "<li>No teams found – try full name or nickname (see tip)</li>";
+    searchResults.innerHTML = "<li>No teams found – try city or full name</li>";
     return;
   }
 
@@ -173,12 +172,95 @@ function renderSelectedTeams() {
   });
 }
 
-// Placeholder games
+// ────────────────────────────────────────────────
+// Fetch and display upcoming games (next 7 days)
+// ────────────────────────────────────────────────
 async function loadGames() {
   if (selectedTeams.length === 0) {
     gamesContainer.innerHTML = "<p>Add teams in settings to see games!</p>";
     return;
   }
 
-  gamesContainer.innerHTML = "<p>Teams selected! (Upcoming games will appear here soon)</p>";
+  gamesContainer.innerHTML = "<p>Loading upcoming games...</p>";
+
+  const now = new Date();
+  const in7days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  let allGames = [];
+
+  for (const team of selectedTeams) {
+    try {
+      const res = await fetch(`${API_BASE}eventsnext.php?id=${team.id}`);
+      const data = await res.json();
+      const events = data.events || [];
+
+      for (const event of events) {
+        // Parse event date + time (API gives dateEvent + strTime in UTC)
+        const eventUTC = new Date(`${event.dateEvent}T${event.strTime}Z`);
+        if (isNaN(eventUTC.getTime())) continue; // skip invalid dates
+
+        // Filter next 7 days
+        if (eventUTC > now && eventUTC < in7days) {
+          // Get local time in user's timezone
+          const localTime = eventUTC.toLocaleString("en-US", {
+            timeZone: userTimezone,
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true
+          });
+
+          // Fetch broadcast info
+          let broadcasts = "TBD / Check listings";
+          try {
+            const tvRes = await fetch(`${API_BASE}lookuptv.php?id=${event.idEvent}`);
+            const tvData = await tvRes.json();
+            const tvList = tvData.tv || [];
+            if (tvList.length > 0) {
+              broadcasts = tvList.map(t => t.strChannel).filter(Boolean).join(", ");
+            }
+          } catch (tvErr) {
+            console.warn("Broadcast fetch failed", tvErr);
+          }
+
+          allGames.push({
+            ...event,
+            localTime,
+            broadcasts,
+            homeTeam: event.strHomeTeam,
+            awayTeam: event.strAwayTeam,
+            league: team.league || event.strLeague
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to load games for team ${team.name}`, err);
+    }
+  }
+
+  // Sort by date/time
+  allGames.sort((a, b) => new Date(a.dateEvent + " " + a.strTime) - new Date(b.dateEvent + " " + b.strTime));
+
+  // Render
+  if (allGames.length === 0) {
+    gamesContainer.innerHTML = "<p>No upcoming games in the next 7 days for your teams.</p>";
+    return;
+  }
+
+  gamesContainer.innerHTML = "";
+  allGames.forEach(game => {
+    const card = document.createElement("div");
+    card.className = "game-card";
+    card.innerHTML = `
+      <div class="game-header">
+        <div class="teams">${game.awayTeam} @ ${game.homeTeam}</div>
+        <div class="time">${game.localTime}</div>
+      </div>
+      <div class="league">${game.league}</div>
+      <div class="broadcast"><strong>Watch:</strong> ${game.broadcasts}</div>
+    `;
+    gamesContainer.appendChild(card);
+  });
 }
