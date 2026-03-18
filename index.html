@@ -10,7 +10,7 @@
   <header>
     <button id="menu-btn" aria-label="Open settings">☰</button>
     <h1>Game Ahead</h1>
-    <div></div>
+    <div></div> <!-- spacer for centering -->
   </header>
 
   <main>
@@ -18,7 +18,7 @@
     <div id="games-container">Add teams in settings to see games!</div>
   </main>
 
-  <!-- Settings overlay (now proper floating modal) -->
+  <!-- Settings overlay (floating modal) -->
   <div id="settings-overlay" class="overlay hidden">
     <div class="settings-panel">
       <div class="settings-header">
@@ -33,9 +33,8 @@
 
       <section>
         <h3>Teams to Follow</h3>
-        <label>League:</label>
-        <select id="league-select"></select>
-        <ul id="league-teams-list" class="team-results"></ul>
+        <input id="team-search" type="text" placeholder="Search teams (e.g. Titans, Lakers, Yankees)" autocomplete="off"/>
+        <ul id="search-results" class="team-results"></ul>
 
         <h4>Your Selected Teams</h4>
         <ul id="selected-teams-list" class="selected-list"></ul>
