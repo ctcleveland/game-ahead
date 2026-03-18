@@ -31,9 +31,15 @@
         <select id="tz-select"></select>
       </section>
 
-      <section>
+           <section>
         <h3>Teams to Follow</h3>
-        <input id="team-search" type="text" placeholder="Search teams (e.g. Titans, Lakers, Yankees)" autocomplete="off"/>
+        <label>
+          <input type="checkbox" id="city-mode" checked> Search by City (recommended for teams like 76ers, Eagles)
+        </label>
+        <p style="font-size: 0.85rem; color: #94a3b8; margin: 0.5rem 0;">
+          Tip: City mode auto-includes city names (e.g. type "76ers" → searches "Philadelphia 76ers"). Uncheck for direct nickname search.
+        </p>
+        <input id="team-search" type="text" placeholder="e.g. 76ers, Eagles, Lakers, Titans, Philadelphia" autocomplete="off"/>
         <ul id="search-results" class="team-results"></ul>
 
         <h4>Your Selected Teams</h4>
