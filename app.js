@@ -1,6 +1,6 @@
 // app.js - Game Ahead PWA (dynamic team ID lookup with API-Sports.io)
 
-const API_KEY = "YOUR_API_KEY_HERE";  // Replace with your real API-Sports key
+const API_KEY = "7ed34d0b99ba3829f677cb5483a76c15";  // Replace with your real API-Sports key
 
 // Base URLs per sport
 const BASE_URLS = {
